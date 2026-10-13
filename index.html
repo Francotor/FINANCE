@@ -71,8 +71,9 @@ const sh=(s,n)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return
 const dd=(a,b)=>Math.abs((new Date(a+'T12:00:00')-new Date(b+'T12:00:00'))/864e5);
 const dm=f=>f.slice(8)+'/'+f.slice(5,7);
 
-const CG=['Supermercado','Cuentas básicas','Arriendo/Dividendo','Transporte','Combustible','Salud','Restaurantes','Ocio','Ropa','Hogar','Educación','Mascotas','Créditos/Cuotas','Suscripciones','Ahorro','Otros'];
-const CI=['Sueldo','Retiro empresa','Honorarios','Ventas extra','Otros'];
+const CG=['Supermercado','Cuentas básicas','Arriendo/Dividendo','Transporte','Combustible','Salud','Restaurantes','Ocio','Ropa','Hogar','Educación','Mascotas','Créditos/Cuotas','Suscripciones','Costos bancarios','Ahorro','Traspaso interno','Otros'];
+const CI=['Sueldo','Retiro empresa','Honorarios','Ventas extra','Traspaso interno','Otros'];
+const INT='Traspaso interno';
 
 let cfg=Object.assign({url:'',token:'',p1:'Franco',p2:'Pareja',me:''},LS('cfg')||{});
 (function(){if(location.hash.indexOf('#cfg=')===0){try{const c=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(5)))));Object.assign(cfg,c,{me:''});SV('cfg',cfg)}catch(e){}history.replaceState(null,'',location.pathname)}})();
@@ -152,7 +153,7 @@ function vIn(){
 }
 
 function vRs(){
-  const L=movs.filter(m=>String(m.fecha).startsWith(ym));
+  const L=movs.filter(m=>String(m.fecha).startsWith(ym)&&m.cat!==INT);
   const sum=a=>a.reduce((s,m)=>s+Number(m.monto),0);
   const I=L.filter(m=>m.tipo==='I'),G=L.filter(m=>m.tipo==='G');
   const ti=sum(I),tg=sum(G);
@@ -199,7 +200,7 @@ function vCt(){
       +'<div class="lbl">Quién (para todas)</div><select data-rq="1"><option '+(r.quien===cfg.p1?'selected':'')+'>'+esc(cfg.p1)+'</option><option '+(r.quien===cfg.p2?'selected':'')+'>'+esc(cfg.p2)+'</option></select>'
       +'<div class="lbl">Ámbito (para todas)</div><select data-ra="1"><option value="C" '+(r.ambito==='C'?'selected':'')+'>Compartido</option><option value="P" '+(r.ambito==='P'?'selected':'')+'>Personal</option></select>';
       r.nuevas.forEach((l,i)=>{const cs=l.monto<0?CG:CI;
-        h+='<div class="row" style="flex-direction:column"><div style="display:flex;justify-content:space-between"><span>'+dm(l.fecha)+' · '+esc(l.desc.slice(0,30))+'</span><b class="'+(l.monto<0?'neg':'pos')+'">'+clp(l.monto)+'</b></div><select data-nc="'+i+'">'+cs.map(c=>'<option '+((r.newCat[i]||'Otros')===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'});
+        h+='<div class="row" style="flex-direction:column"><div style="display:flex;justify-content:space-between"><span>'+dm(l.fecha)+' · '+esc(l.desc.slice(0,30))+(l.inf?' · deducido del saldo':'')+'</span><b class="'+(l.monto<0?'neg':'pos')+'">'+clp(l.monto)+'</b></div><select data-nc="'+i+'">'+cs.map(c=>'<option '+((r.newCat[i]||'Otros')===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'});
       h+='<button class="btn" data-a="addn">Agregar las '+r.nuevas.length+'</button></div>';
     }
     if(r.huer.length)h+='<div class="card"><b>Anotados como banco y no aparecen ('+r.huer.length+')</b><div class="mut">Revisa: monto distinto, fecha lejana, o en realidad fue efectivo.</div>'
@@ -286,7 +287,8 @@ const act={
       pool.forEach(m=>{if(taken.has(m.id)||m.tipo!==tipo||Number(m.monto)!==amt)return;const x=dd(m.fecha,l.fecha);if(x<=4&&x<bd){best=m;bd=x}});
       if(best){taken.add(best.id);matched.push({l,m:best})}else nuevas.push(l);
     });
-    cart.res={matched,nuevas,huer:pool.filter(m=>!taken.has(m.id)),efe:movs.filter(m=>m.medio==='E'&&m.tipo==='G'&&m.fecha>=lo&&m.fecha<=hi),lo,hi,ya:L.length-nu0.length,done:0,newCat:{},quien:cfg.me||cfg.p1,ambito:'C',allPos:L.every(l=>l.monto>0)};
+    cart.res={matched,nuevas,huer:pool.filter(m=>!taken.has(m.id)),efe:movs.filter(m=>m.medio==='E'&&m.tipo==='G'&&m.fecha>=lo&&m.fecha<=hi),lo,hi,ya:L.length-nu0.length,done:0,newCat:{},quien:cfg.me||cfg.p1,ambito:'P',allPos:L.every(l=>l.monto>0)};
+    nuevas.forEach((l,i)=>{cart.res.newCat[i]=guess(l)});
     render();
   },
   okm:()=>{const r=cart.res;r.matched.forEach(x=>updMov(x.m.id,{cartola:x.l.key}));r.done+=r.matched.length;toast(r.matched.length+' conciliados');r.matched=[];render()},
@@ -462,7 +464,7 @@ function compact(v){return v>=1e6?(v/1e6).toFixed(1).replace('.',',').replace(',
 function lastMonths(n){const out=[];let y=+ym.slice(0,4),m=+ym.slice(5);for(let i=0;i<n;i++){out.unshift(y+'-'+p2(m));m--;if(m<1){m=12;y--}}return out}
 function chartMeses(){
   const ms=lastMonths(6);
-  const data=ms.map(k=>{let i=0,g=0;movs.forEach(m=>{if(String(m.fecha).startsWith(k)){if(m.tipo==='I')i+=Number(m.monto);else g+=Number(m.monto)}});return {k:k,i:i,g:g}});
+  const data=ms.map(k=>{let i=0,g=0;movs.forEach(m=>{if(String(m.fecha).startsWith(k)&&m.cat!==INT){if(m.tipo==='I')i+=Number(m.monto);else g+=Number(m.monto)}});return {k:k,i:i,g:g}});
   if(!data.some(d=>d.i||d.g))return '<div class="card"><b>Ingresos vs gastos</b><div class="mut">Aún no hay movimientos en estos meses.</div></div>';
   const W=320,H=180,pt=14,pb=22,gw=W/6,bw=16,ph=H-pt-pb,mx=Math.max.apply(null,data.map(d=>Math.max(d.i,d.g)));
   let s='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;display:block"><line x1="0" x2="'+W+'" y1="'+(H-pb)+'" y2="'+(H-pb)+'" style="stroke:var(--bd)"/>';
@@ -514,9 +516,14 @@ async function readFile(f){
   return parseCsv(await f.text());
 }
 function autoMap(){
-  let h=cart.rows.findIndex(r=>r.some(c=>/fecha/i.test(String(c))));if(h<0)h=0;cart.hdr=h;
+  const K=/descrip|detalle|glosa|movimiento|concepto|cargo|abono|d[eé]bito|monto|importe/i;
+  let h=cart.rows.findIndex(r=>r.some(c=>/fecha/i.test(String(c)))&&r.some(c=>K.test(String(c))));
+  if(h<0)h=cart.rows.findIndex(r=>r.some(c=>/fecha/i.test(String(c))));if(h<0)h=0;cart.hdr=h;
   const H=(cart.rows[h]||[]).map(String),fi=re=>H.findIndex(c=>re.test(c));
-  cart.map={f:fi(/fecha/i),d:fi(/descrip|detalle|glosa|movimiento|concepto/i),m:fi(/^(monto|importe)/i),c:fi(/cargo|giro|d[eé]bito/i),a:fi(/abono|dep[oó]sito|cr[eé]dito/i)};
+  cart.map={f:fi(/fecha/i),d:fi(/descrip|detalle|glosa|movimiento|concepto/i),m:fi(/^(monto|importe)/i),c:fi(/cargo|giro|d[eé]bito/i),a:fi(/abono|dep[oó]sito|cr[eé]dito/i),s:fi(/^saldo/i)};
+  // año para fechas "dd/mm": se toma de la fecha completa más reciente que aparece sobre la tabla
+  let best='';cart.y=+today().slice(0,4);cart.hm=0;
+  cart.rows.slice(0,h).forEach(r=>r.forEach(c=>{const m=String(c).match(/^\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\s*$/);if(m){const k=m[3]+'-'+p2(+m[2])+'-'+p2(+m[1]);if(k>best){best=k;cart.y=+m[3];cart.hm=+m[2]}}}));
 }
 function bindCt(){
   const i=$('#file');if(!i)return;
@@ -526,7 +533,9 @@ function bindCt(){
 function pd(v){
   if(v instanceof Date){const d=new Date(v.getTime()+43200000);return ymd(d)}
   const s=String(v==null?'':v).trim();
-  let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/);
+  if(m){let y=cart.y||+today().slice(0,4);if(cart.hm&&+m[2]>cart.hm)y--;return y+'-'+p2(+m[2])+'-'+p2(+m[1])}
+  m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
   if(m){let y=+m[3];if(y<100)y+=2000;return y+'-'+p2(+m[2])+'-'+p2(+m[1])}
   m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[1]+'-'+m[2]+'-'+m[3]:null;
 }
@@ -539,17 +548,43 @@ function pn(v){
   const n=parseFloat(s);return isNaN(n)?0:(neg?-n:n);
 }
 function buildLines(){
-  const M=cart.map,out=[],seen={};
-  cart.rows.slice(cart.hdr+1).forEach(r=>{
-    const fe=pd(r[M.f]);if(!fe)return;
+  const M=cart.map,out=[],seen={};let ult=null;
+  for(const r of cart.rows.slice(cart.hdr+1)){
+    if(r.some(c=>/^\s*resumen de/i.test(String(c))))break;
+    const fe=pd(r[M.f]);if(!fe)continue;
     let mo=M.m>=0?pn(r[M.m]):0;
     if(!mo&&(M.c>=0||M.a>=0))mo=(M.a>=0?Math.abs(pn(r[M.a])):0)-(M.c>=0?Math.abs(pn(r[M.c])):0);
-    if(!mo)return;
+    const sd=M.s>=0&&String(r[M.s]==null?'':r[M.s]).trim()!==''?pn(r[M.s]):null;
+    let inf=false;
+    // algunos bancos dejan el abono solo en la columna de saldo: se deduce de la diferencia con el saldo anterior
+    if(!mo&&sd!==null&&ult!==null&&sd!==ult){mo=sd-ult;inf=true}
+    if(sd!==null)ult=sd;
+    if(!mo)continue;
     const de=String(r[M.d]==null?'':r[M.d]).trim(),base=fe+'|'+mo+'|'+de;
     seen[base]=(seen[base]||0)+1;
-    out.push({fecha:fe,desc:de,monto:mo,key:base+'|'+seen[base]});
-  });
+    out.push({fecha:fe,desc:de,monto:mo,inf:inf,key:base+'|'+seen[base]});
+  }
   return out;
+}
+function guess(l){
+  const d=l.desc.toLowerCase();
+  if(l.monto>0){
+    if(/traspaso/.test(d))return INT;
+    if(/remuneraci|sueldo/.test(d))return 'Sueldo';
+    if(/tec ingenieria|retiro/.test(d))return 'Retiro empresa';
+    return 'Otros';
+  }
+  if(/traspaso.*l.nea|amortizaci/.test(d))return INT;
+  if(/interes|impuesto|com\.|comisi/.test(d))return 'Costos bancarios';
+  if(/cuota cr.dito|cr.dito consumo|dividendo/.test(d))return 'Créditos/Cuotas';
+  if(/netflix|disney|spotify|amazon|prime|crunchy|melipass|claude|anthropic|pago recurrente/.test(d))return 'Suscripciones';
+  if(/entel|movistar|claro|wom|vtr|enel|cge|essbio|esval|cilindro|seg\. vida|seguro/.test(d))return 'Cuentas básicas';
+  if(/copec|shell|petrobras|enex|bencina/.test(d))return 'Combustible';
+  if(/unimarc|supermercado|lider|jumbo|santa isabel|tottus|acuenta|fruter/.test(d))return 'Supermercado';
+  if(/homecenter|easy|sodimac/.test(d))return 'Hogar';
+  if(/belmed|farmacia|cruz verde|salcobrand|ahumada/.test(d))return 'Salud';
+  if(/parking|estacionamiento|peaje|uber|cabify/.test(d))return 'Transporte';
+  return 'Otros';
 }
 
 /* ---------- inicio ---------- */
