@@ -27,7 +27,7 @@ input,select{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px 
 .btn{width:100%;padding:14px;border:0;border-radius:12px;background:var(--pri);color:var(--onpri);font:inherit;font-weight:600;margin-top:12px}
 .btn.sec{background:transparent;color:var(--pri);border:1px solid var(--pri)}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
-nav button{flex:1;padding:12px 4px;border:0;background:none;color:var(--mut);font:inherit;font-size:12px}
+nav button{flex:1;padding:12px 2px;border:0;background:none;color:var(--mut);font:inherit;font-size:11px}
 nav button.on{color:var(--pri);font-weight:700}
 .row{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)}
 .row:last-child{border:0}
@@ -41,6 +41,8 @@ nav button.on{color:var(--pri);font-weight:700}
 .toast.on{opacity:1}
 .legend{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+.track{height:8px;border-radius:4px;background:var(--bd);overflow:hidden}
+.track>div{height:100%;background:var(--pri);border-radius:4px}
 </style>
 </head>
 <body>
@@ -50,6 +52,7 @@ nav button.on{color:var(--pri);font-weight:700}
 <button data-v="in">Anotar</button>
 <button data-v="rs">Resumen</button>
 <button data-v="ct">Cartola</button>
+<button data-v="cr">Fijos</button>
 <button data-v="hs">Historial</button>
 <button data-v="aj">Ajustes</button>
 </nav>
@@ -68,7 +71,7 @@ const sh=(s,n)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return
 const dd=(a,b)=>Math.abs((new Date(a+'T12:00:00')-new Date(b+'T12:00:00'))/864e5);
 const dm=f=>f.slice(8)+'/'+f.slice(5,7);
 
-const CG=['Supermercado','Cuentas básicas','Arriendo/Dividendo','Transporte','Combustible','Salud','Restaurantes','Ocio','Ropa','Hogar','Educación','Mascotas','Créditos/Cuotas','Ahorro','Otros'];
+const CG=['Supermercado','Cuentas básicas','Arriendo/Dividendo','Transporte','Combustible','Salud','Restaurantes','Ocio','Ropa','Hogar','Educación','Mascotas','Créditos/Cuotas','Suscripciones','Ahorro','Otros'];
 const CI=['Sueldo','Retiro empresa','Honorarios','Ventas extra','Otros'];
 
 let cfg=Object.assign({url:'',token:'',p1:'Franco',p2:'Pareja',me:''},LS('cfg')||{});
@@ -77,6 +80,7 @@ let movs=LS('movs')||[],queue=LS('queue')||[];
 let view='in',ym=today().slice(0,7);
 let form={tipo:'G',cat:'',quien:cfg.me,ambito:'C',medio:'B',fecha:today(),monto:'',nota:''};
 let cart={rows:[],hdr:0,map:{},res:null};
+let creds=LS('creds')||[],pay=null,credForm=null,bver=LS('bver')||1;
 
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),2000)}
 
@@ -88,14 +92,23 @@ async function api(body){
 let flushing=false;
 async function flush(){
   if(flushing||!cfg.url)return;flushing=true;
-  try{while(queue.length){await api(queue[0]);queue.shift();SV('queue',queue)}}catch(e){}
+  try{while(queue.length){
+    try{await api(queue[0])}catch(e){if(e.message==='accion'){toast('El script de Google está desactualizado');queue.shift();SV('queue',queue);continue}throw e}
+    queue.shift();SV('queue',queue);
+  }}catch(e){}
   flushing=false;updStat();
 }
 function updStat(){$('#st').textContent=!cfg.url?'sin planilla conectada':queue.length?queue.length+' por enviar':'al día'}
 async function pull(){
   if(!cfg.url)return;
   await flush();if(queue.length)return;
-  try{const j=await api({action:'list'});movs=j.movs;SV('movs',movs);render()}catch(e){updStat()}
+  try{
+    const j=await api({action:'list'});
+    movs=j.movs;SV('movs',movs);
+    bver=j.v||1;SV('bver',bver);
+    if(j.creds){creds=j.creds;SV('creds',creds)}
+    if(!(view==='cr'&&(credForm||pay))){if(view==='in')readForm();render()}
+  }catch(e){updStat()}
 }
 function enqueue(op){queue.push(op);SV('queue',queue);updStat();flush()}
 function addMovs(a){movs.push(...a);SV('movs',movs);enqueue({action:'addMany',movs:a})}
@@ -105,7 +118,7 @@ function updMov(id,f){const m=movs.find(x=>x.id===id);if(m)Object.assign(m,f);SV
 /* ---------- vistas ---------- */
 function render(){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===view));
-  $('#v').innerHTML=({in:vIn,rs:vRs,ct:vCt,hs:vHs,aj:vAj})[view]();
+  $('#v').innerHTML=({in:vIn,rs:vRs,ct:vCt,cr:vCr,hs:vHs,aj:vAj})[view]();
   if(view==='ct')bindCt();
 }
 function chips(key,opts,sel){
@@ -153,7 +166,7 @@ function vRs(){
   const ef=sum(G.filter(m=>m.medio==='E'));
   return monthBar()
   +'<div class="card"><div class="row"><span>Ingresos</span><span class="big pos">'+clp(ti)+'</span></div><div class="row"><span>Gastos</span><span class="big neg">'+clp(tg)+'</span></div><div class="row"><span>Saldo del mes</span><span class="big '+(ti-tg<0?'neg':'pos')+'">'+clp(ti-tg)+'</span></div></div>'
-  +chartMeses()+donut(cats,tg)+per(cfg.p1)+per(cfg.p2)
+  +credMes()+chartMeses()+donut(cats,tg)+per(cfg.p1)+per(cfg.p2)
   +(aj?'<div class="card"><b>Compartido</b><div class="row"><span>Total compartido</span><span>'+clp(sum(sc))+'</span></div><div class="mut" style="margin-top:6px">'+aj+' (supone mitad y mitad)</div></div>':'')
   +'<div class="card"><b>Por medio</b><div class="row"><span>Efectivo</span><span>'+clp(ef)+'</span></div><div class="row"><span>Banco / tarjeta</span><span>'+clp(tg-ef)+'</span></div></div>';
 }
@@ -224,6 +237,43 @@ const act={
   },
   mes:d=>{let y=+ym.slice(0,4),m=+ym.slice(5)+Number(d.d);if(m<1){m=12;y--}if(m>12){m=1;y++}ym=y+'-'+p2(m);render()},
   del:d=>{if(confirm('¿Borrar este movimiento?')){delMov(d.id);render()}},
+  crnew:()=>{pay=null;credForm={id:''};render()},
+  cedit:d=>{pay=null;credForm={id:d.id};render()},
+  crcancel:()=>{credForm=null;render()},
+  cdel:d=>{
+    if(!confirm('¿Eliminar este registro? Los pagos ya registrados se mantienen en el historial.'))return;
+    creds=creds.filter(x=>x.id!==d.id);SV('creds',creds);enqueue({action:'credDel',id:d.id});render();
+  },
+  crsave:()=>{
+    if(bver<3)return toast('Primero actualiza el script de Google');
+    readCredDraft();
+    const d=credForm.d,es=d.tipo==='S';
+    const nombre=d.nombre.trim(),cuota=Number(d.cuota)||0,total=es?0:(parseInt(d.total,10)||0),pag=es?0:(parseInt(d.pagadas0,10)||0);
+    if(!nombre)return toast('Falta el nombre');
+    if(!cuota)return toast(es?'Falta el monto del cobro':'Falta el valor de la cuota');
+    if(!es&&(total<1||total>480))return toast('Revisa el total de cuotas');
+    if(!d.primera)return toast(es?'Falta la fecha del próximo cobro':'Falta la fecha de la cuota 1');
+    if(!es&&(pag<0||pag>total))return toast('Revisa las cuotas ya pagadas');
+    const c={id:credForm.id||uid(),nombre:nombre,entidad:d.entidad.trim(),cuota:cuota,total:total,primera:d.primera,pagadas0:pag,quien:d.quien,ambito:d.ambito,ts:new Date().toISOString(),tipo:d.tipo,cada:es?(parseInt(d.cada,10)||1):1,cat:d.cat||(es?'Suscripciones':'Créditos/Cuotas')};
+    const i=creds.findIndex(x=>x.id===c.id);if(i>=0)creds[i]=c;else creds.push(c);
+    SV('creds',creds);enqueue({action:'credSave',cred:c});credForm=null;toast('Guardado');render();
+  },
+  pagar:d=>{
+    if(bver<3)return toast('Primero actualiza el script de Google');
+    pay={id:d.id,n:Number(d.n)};credForm=null;render();
+    try{window.scrollTo(0,0)}catch(e){}
+  },
+  paycancel:()=>{pay=null;render()},
+  payok:()=>{
+    const c=creds.find(x=>x.id===pay.id);if(!c){pay=null;return render()}
+    const monto=parseInt(digits($('#payamt').value),10)||0;
+    if(!monto)return toast('Falta el monto');
+    if(monto>=1000000&&!confirm('¿Confirmas $'+monto.toLocaleString('es-CL')+' ('+palabras(monto)+' pesos)?'))return;
+    const oc=cuotasDe(c).find(x=>x.n===pay.n),es=c.tipo==='S';
+    const nota=es?c.nombre+' · cobro '+(oc?oc.fecha.slice(5,7)+'/'+oc.fecha.slice(0,4):''):c.nombre+' · cuota '+pay.n+'/'+c.total;
+    addMovs([{id:uid(),fecha:$('#paydate').value||today(),tipo:'G',monto:monto,cat:c.cat||(es?'Suscripciones':'Créditos/Cuotas'),quien:$('#payqui').value,ambito:c.ambito,medio:'B',nota:nota.slice(0,60),cartola:'',credito:c.id+'#'+pay.n,ts:new Date().toISOString()}]);
+    pay=null;toast(es?'Cobro registrado':'Cuota registrada');render();
+  },
   conc:()=>{
     const L=buildLines();if(!L.length)return toast('No encontré movimientos: revisa las columnas');
     const used=new Set(movs.filter(m=>m.cartola).map(m=>m.cartola));
@@ -267,6 +317,7 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('change',e=>{
   const t=e.target,d=t.dataset;if(!d)return;
+  if(t.id==='cr_tipo'&&credForm){readCredDraft();credForm.d.cat='';render();return}
   if(d.m!==undefined)cart.map[d.m]=Number(t.value);
   if(d.nc!==undefined&&cart.res)cart.res.newCat[d.nc]=t.value;
   if(d.rq!==undefined&&cart.res)cart.res.quien=t.value;
@@ -300,11 +351,111 @@ function prev(v){
   return '$'+n.toLocaleString('es-CL')+' · '+(n===1?'un peso':palabras(n)+' pesos');
 }
 document.addEventListener('input',e=>{
-  if(e.target.id!=='amt')return;
-  const el=e.target;el.value=fmtMonto(el.value);form.monto=el.value;
+  const el=e.target;
+  if(el.id==='payamt'||el.id==='cr_cuota'){el.value=fmtMonto(el.value);return}
+  if(el.id!=='amt')return;
+  el.value=fmtMonto(el.value);form.monto=el.value;
   const p=$('#amtp');if(p)p.textContent=prev(el.value);
 });
 
+/* ---------- créditos ---------- */
+const dmy=f=>f.slice(8)+'/'+f.slice(5,7)+'/'+f.slice(0,4);
+function addMonths(s,k){
+  const y=+s.slice(0,4),m=+s.slice(5,7)-1,d=+s.slice(8,10);
+  const t=new Date(y,m+k,1),last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();
+  return ymd(new Date(t.getFullYear(),t.getMonth(),Math.min(d,last)));
+}
+function cuotasDe(c){
+  const keys=new Set(movs.filter(m=>m.credito).map(m=>m.credito)),hoy=today(),out=[];
+  const es=c.tipo==='S',cada=c.cada||1,lim=addMonths(hoy,13),viejo=addMonths(hoy,-2),max=es?600:c.total;
+  for(let n=1;n<=max;n++){
+    const f=addMonths(c.primera,(n-1)*cada);
+    if(es&&f>lim)break;
+    const pagada=n<=(c.pagadas0||0)||keys.has(c.id+'#'+n)||(es&&f<viejo);
+    out.push({n:n,fecha:f,pagada:pagada,vencida:!pagada&&f<hoy});
+  }
+  return out;
+}
+function nextMonths(n){const out=[];let y=+today().slice(0,4),m=+today().slice(5,7);for(let i=0;i<n;i++){out.push(y+'-'+p2(m));m++;if(m>12){m=1;y++}}return out}
+function credMes(){
+  let tot=0,pag=0,n=0;
+  creds.forEach(c=>cuotasDe(c).forEach(x=>{if(x.fecha.startsWith(ym)){n++;tot+=c.cuota;if(x.pagada)pag+=c.cuota}}));
+  if(!n)return '';
+  return '<div class="card"><b>Gastos fijos del mes</b><div class="row"><span>Total del mes</span><span>'+clp(tot)+'</span></div><div class="row"><span>Ya pagado</span><span class="pos">'+clp(pag)+'</span></div><div class="row"><span>Pendiente</span><span class="neg">'+clp(tot-pag)+'</span></div></div>';
+}
+function readCredDraft(){
+  const g=id=>{const e=$('#'+id);return e?e.value:''};
+  credForm.d={tipo:g('cr_tipo')||'C',nombre:g('cr_nom'),entidad:g('cr_ent'),cuota:parseInt(digits(g('cr_cuota')),10)||'',total:g('cr_tot'),primera:g('cr_pri'),pagadas0:g('cr_pag'),quien:g('cr_qui'),ambito:g('cr_amb'),cada:g('cr_cada')||'1',cat:g('cr_cat')};
+}
+function cadaTxt(c){const k=c.cada||1;return k===1?'/mes':k===12?'/año':' cada '+k+' meses'}
+function vCr(){
+  const hoy=today();let h='';
+  if(bver<3)h+='<div class="warn">El script de Google está desactualizado. Pega el Code.gs nuevo y crea una versión nueva para poder guardar créditos, suscripciones y pagos.</div>';
+  if(pay){
+    const c=creds.find(x=>x.id===pay.id);
+    if(c){
+      const es=c.tipo==='S',o=p=>'<option '+(c.quien===p?'selected':'')+'>'+esc(p)+'</option>';
+      h+='<div class="card"><b>'+(es?'Registrar cobro':'Pagar cuota '+pay.n+' de '+c.total)+'</b><div class="mut">'+esc(c.nombre)+'</div>'
+      +'<div class="lbl">'+(es?'Monto cobrado':'Monto pagado')+'</div><input id="payamt" class="amt" inputmode="numeric" value="'+fmtMonto(c.cuota)+'">'
+      +(es?'<div class="mut">Si el cobro varía o es en dólares, corrígelo al monto real de tu cartola.</div>':'')
+      +'<div class="lbl">Fecha</div><input id="paydate" type="date" value="'+hoy+'">'
+      +'<div class="lbl">Quién pagó</div><select id="payqui">'+o(cfg.p1)+o(cfg.p2)+'</select>'
+      +'<button class="btn" data-a="payok">Confirmar</button><button class="btn sec" data-a="paycancel">Cancelar</button></div>';
+    }
+  }
+  if(credForm){
+    const c0=credForm.d||creds.find(x=>x.id===credForm.id)||{tipo:'C',nombre:'',entidad:'',cuota:'',total:'',primera:'',pagadas0:0,quien:cfg.me||cfg.p1,ambito:'C',cada:1};
+    const es=c0.tipo==='S',o=p=>'<option '+(c0.quien===p?'selected':'')+'>'+esc(p)+'</option>';
+    const catSel=c0.cat||(es?'Suscripciones':'Créditos/Cuotas'),cd=String(c0.cada||1);
+    const cs=CG.map(x=>'<option '+(x===catSel?'selected':'')+'>'+esc(x)+'</option>').join('');
+    const fr=[['1','Cada mes'],['3','Cada 3 meses'],['6','Cada 6 meses'],['12','Cada año']].map(x=>'<option value="'+x[0]+'" '+(cd===x[0]?'selected':'')+'>'+x[1]+'</option>').join('');
+    h+='<div class="card"><b>'+(credForm.id?'Editar':'Nuevo')+'</b>'
+    +'<div class="lbl">Tipo</div><select id="cr_tipo"><option value="C" '+(es?'':'selected')+'>Crédito o cuotas (tiene fin)</option><option value="S" '+(es?'selected':'')+'>Suscripción o cobro recurrente (sin fin)</option></select>'
+    +'<div class="lbl">Nombre</div><input id="cr_nom" value="'+esc(c0.nombre)+'" placeholder="'+(es?'ej: Netflix':'ej: Crédito de consumo')+'">'
+    +'<div class="lbl">'+(es?'Empresa (opcional)':'Entidad')+'</div><input id="cr_ent" value="'+esc(c0.entidad)+'" placeholder="'+(es?'ej: Netflix, Entel':'ej: Banco Estado')+'">'
+    +'<div class="lbl">'+(es?'Monto del cobro (CLP)':'Valor de la cuota (CLP)')+'</div><input id="cr_cuota" inputmode="numeric" placeholder="$ 0" value="'+(c0.cuota?fmtMonto(c0.cuota):'')+'">'
+    +(es?'<div class="mut">Si varía o se cobra en dólares, pon un valor aproximado: al registrar cada cobro lo corriges.</div><div class="lbl">Frecuencia</div><select id="cr_cada">'+fr+'</select>':'<div class="lbl">Total de cuotas</div><input id="cr_tot" type="number" inputmode="numeric" value="'+esc(c0.total)+'">')
+    +'<div class="lbl">'+(es?'Fecha del próximo cobro':'Fecha de la cuota 1')+'</div><input id="cr_pri" type="date" value="'+esc(c0.primera)+'"><div class="mut">'+(es?'Los cobros siguientes se calculan solos. Si el de este mes ya pasó, regístralo después con Registrar cobro.':'Si ya lo estás pagando, la fecha de la primera cuota original. Si parte en noviembre, la de esa primera cuota.')+'</div>'
+    +(es?'':'<div class="lbl">Cuotas pagadas antes de usar la app</div><input id="cr_pag" type="number" inputmode="numeric" value="'+esc(c0.pagadas0)+'"><div class="mut">Cuéntalas hasta el mes anterior. Si ya pagaste la de este mes, regístrala después con Pagar.</div>')
+    +'<div class="lbl">Categoría</div><select id="cr_cat">'+cs+'</select>'
+    +'<div class="lbl">Quién lo paga</div><select id="cr_qui">'+o(cfg.p1)+o(cfg.p2)+'</select>'
+    +'<div class="lbl">Ámbito</div><select id="cr_amb"><option value="C" '+(c0.ambito==='C'?'selected':'')+'>Compartido</option><option value="P" '+(c0.ambito==='P'?'selected':'')+'>Personal</option></select>'
+    +'<button class="btn" data-a="crsave">Guardar</button><button class="btn sec" data-a="crcancel">Cancelar</button></div>';
+  }
+  if(!pay&&!credForm)h+='<button class="btn" style="margin:0 0 12px" data-a="crnew">+ Nuevo crédito o suscripción</button>';
+  if(!creds.length&&!credForm)h+='<div class="card"><b>Gastos fijos</b><div class="mut">Registra cada crédito o suscripción una sola vez. La app calcula las fechas y cuánto falta; tú solo tocas el botón cuando se paga.</div></div>';
+  const cr=creds.filter(c=>c.tipo!=='S'),su=creds.filter(c=>c.tipo==='S');
+  if(cr.length&&su.length)h+='<div class="lbl">Créditos</div>';
+  cr.forEach(c=>{
+    const cs=cuotasDe(c),pg=cs.filter(x=>x.pagada).length,rest=c.total-pg,next=cs.find(x=>!x.pagada),venc=cs.filter(x=>x.vencida).length;
+    h+='<div class="card"><div class="row" style="border:0;padding:0"><b>'+esc(c.nombre)+'</b><span>'+clp(c.cuota)+' /mes</span></div>'
+    +'<div class="mut">'+esc(c.entidad)+' · paga '+esc(c.quien)+' · '+(c.ambito==='C'?'compartido':'personal')+'</div>'
+    +'<div class="track" style="margin:10px 0 4px"><div style="width:'+(pg/c.total*100).toFixed(0)+'%"></div></div>'
+    +'<div class="mut">'+pg+' de '+c.total+' cuotas pagadas'+(rest?' · faltan '+rest+' ('+clp(rest*c.cuota)+')':' · crédito terminado')+'</div>'
+    +(venc?'<div class="warn">'+venc+(venc===1?' cuota vencida sin registrar':' cuotas vencidas sin registrar')+'. Regístralas con Pagar.</div>':'')
+    +(next?'<div class="row"><span>Próxima: cuota '+next.n+'</span><span>'+dmy(next.fecha)+'</span></div><button class="btn" style="margin-top:6px" data-a="pagar" data-id="'+esc(c.id)+'" data-n="'+next.n+'">Pagar cuota '+next.n+'</button>':'')
+    +'<div style="display:flex;gap:6px;margin-top:10px"><button class="chip" data-a="cedit" data-id="'+esc(c.id)+'">Editar</button><button class="chip" data-a="cdel" data-id="'+esc(c.id)+'">Eliminar</button></div></div>';
+  });
+  if(su.length){
+    const eq=su.reduce((s,c)=>s+c.cuota/(c.cada||1),0);
+    h+='<div class="lbl">Suscripciones y cobros recurrentes</div><div class="card"><div class="row" style="border:0;padding:0"><span>Equivale a</span><b>'+clp(eq)+' al mes</b></div><div class="mut">'+clp(eq*12)+' al año en total</div></div>';
+    su.forEach(c=>{
+      const cs=cuotasDe(c),next=cs.find(x=>!x.pagada),venc=cs.filter(x=>x.vencida).length;
+      h+='<div class="card"><div class="row" style="border:0;padding:0"><b>'+esc(c.nombre)+'</b><span>'+clp(c.cuota)+cadaTxt(c)+'</span></div>'
+      +'<div class="mut">'+(c.entidad?esc(c.entidad)+' · ':'')+'paga '+esc(c.quien)+' · '+(c.ambito==='C'?'compartido':'personal')+'</div>'
+      +(venc?'<div class="warn">'+venc+(venc===1?' cobro vencido sin registrar':' cobros vencidos sin registrar')+'. Regístralo para que cuente en tus gastos.</div>':'')
+      +(next?'<div class="row"><span>Próximo cobro</span><span>'+dmy(next.fecha)+'</span></div><button class="btn" style="margin-top:6px" data-a="pagar" data-id="'+esc(c.id)+'" data-n="'+next.n+'">Registrar cobro</button>':'')
+      +'<div style="display:flex;gap:6px;margin-top:10px"><button class="chip" data-a="cedit" data-id="'+esc(c.id)+'">Editar</button><button class="chip" data-a="cdel" data-id="'+esc(c.id)+'">Eliminar</button></div></div>';
+    });
+  }
+  if(creds.length){
+    const cm=nextMonths(6).map(k=>{let v=0;creds.forEach(c=>cuotasDe(c).forEach(x=>{if(x.fecha.startsWith(k))v+=c.cuota}));return {k:k,v:v}});
+    const mx=Math.max.apply(null,cm.map(x=>x.v).concat([1]));
+    h+='<div class="card"><b>Gastos fijos comprometidos</b><div class="mut">Próximos 6 meses, créditos y suscripciones</div>'
+    +cm.map(x=>'<div style="margin-top:8px"><div class="row" style="border:0;padding:0"><span style="text-transform:capitalize">'+new Date(x.k+'-01T12:00:00').toLocaleDateString('es-CL',{month:'long',year:'numeric'})+'</span><span>'+clp(x.v)+'</span></div><div class="track"><div style="width:'+(x.v?Math.max(3,x.v/mx*100):0).toFixed(0)+'%"></div></div></div>').join('')+'</div>';
+  }
+  return h;
+}
 /* ---------- gráficos ---------- */
 const PAL=['#14b8a6','#f59e0b','#6366f1','#ec4899','#84cc16','#06b6d4','#a1a1aa'];
 function compact(v){return v>=1e6?(v/1e6).toFixed(1).replace('.',',').replace(',0','')+'M':v>=1e3?Math.round(v/1e3)+'k':String(Math.round(v))}
