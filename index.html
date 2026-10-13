@@ -39,6 +39,8 @@ nav button.on{color:var(--pri);font-weight:700}
 .warn{background:#fef3c7;color:#78350f;border-radius:10px;padding:10px;font-size:13px;margin-top:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:90px;background:#111;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
 .toast.on{opacity:1}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
 </style>
 </head>
 <body>
@@ -125,7 +127,7 @@ function vIn(){
   const cats=form.tipo==='G'?CG:CI;
   const rec=movs.slice().sort((a,b)=>String(b.ts).localeCompare(String(a.ts))).slice(0,5);
   return '<div class="card">'+chips('tipo',[['G','Gasto'],['I','Ingreso']],form.tipo)
-  +'<div class="lbl">Monto (CLP)</div><input id="amt" class="amt" inputmode="numeric" placeholder="0" value="'+esc(form.monto)+'">'
+  +'<div class="lbl">Monto (CLP)</div><input id="amt" class="amt" inputmode="numeric" placeholder="$ 0" autocomplete="off" value="'+esc(form.monto)+'"><div id="amtp" class="mut" style="text-align:center;min-height:20px;margin-top:4px">'+prev(form.monto)+'</div>'
   +'<div class="lbl">Categoría</div>'+chips('cat',cats,form.cat)
   +'<div class="lbl">'+(form.tipo==='G'?'Quién pagó':'Quién recibió')+'</div>'+chips('quien',[cfg.p1,cfg.p2],form.quien)
   +'<div class="lbl">Ámbito</div>'+chips('ambito',[['C','Compartido'],['P','Personal']],form.ambito)
@@ -151,9 +153,8 @@ function vRs(){
   const ef=sum(G.filter(m=>m.medio==='E'));
   return monthBar()
   +'<div class="card"><div class="row"><span>Ingresos</span><span class="big pos">'+clp(ti)+'</span></div><div class="row"><span>Gastos</span><span class="big neg">'+clp(tg)+'</span></div><div class="row"><span>Saldo del mes</span><span class="big '+(ti-tg<0?'neg':'pos')+'">'+clp(ti-tg)+'</span></div></div>'
-  +per(cfg.p1)+per(cfg.p2)
+  +chartMeses()+donut(cats,tg)+per(cfg.p1)+per(cfg.p2)
   +(aj?'<div class="card"><b>Compartido</b><div class="row"><span>Total compartido</span><span>'+clp(sum(sc))+'</span></div><div class="mut" style="margin-top:6px">'+aj+' (supone mitad y mitad)</div></div>':'')
-  +'<div class="card"><b>Gastos por categoría</b>'+(cats.length?cats.map(c=>'<div style="margin-top:8px"><div class="row" style="border:0;padding:0"><span>'+esc(c[0])+'</span><span>'+clp(c[1])+'</span></div><div class="bar" style="width:'+Math.max(2,c[1]/mx*100)+'%"></div></div>').join(''):'<div class="mut">Sin gastos este mes.</div>')+'</div>'
   +'<div class="card"><b>Por medio</b><div class="row"><span>Efectivo</span><span>'+clp(ef)+'</span></div><div class="row"><span>Banco / tarjeta</span><span>'+clp(tg-ef)+'</span></div></div>';
 }
 
@@ -215,6 +216,7 @@ const act={
     readForm();
     const monto=parseInt(String(form.monto).replace(/\D/g,''),10);
     if(!monto)return toast('Falta el monto');
+    if(monto>=1000000&&!confirm('¿Confirmas $'+monto.toLocaleString('es-CL')+' ('+palabras(monto)+' pesos)?'))return;
     if(!form.cat)return toast('Elige categoría');
     if(!form.quien)return toast('Elige quién (o configúralo en Ajustes)');
     addMovs([{id:uid(),fecha:form.fecha,tipo:form.tipo,monto,cat:form.cat,quien:form.quien,ambito:form.ambito,medio:form.medio,nota:form.nota.trim(),cartola:'',ts:new Date().toISOString()}]);
@@ -270,6 +272,71 @@ document.addEventListener('change',e=>{
   if(d.rq!==undefined&&cart.res)cart.res.quien=t.value;
   if(d.ra!==undefined&&cart.res)cart.res.ambito=t.value;
 });
+
+/* ---------- formato de montos ---------- */
+function digits(v){return String(v==null?'':v).replace(/\D/g,'').replace(/^0+/,'').slice(0,9)}
+function fmtMonto(v){const d=digits(v);return d?Number(d).toLocaleString('es-CL'):''}
+function palabras(n){
+  if(n===0)return 'cero';
+  const U=['','uno','dos','tres','cuatro','cinco','seis','siete','ocho','nueve','diez','once','doce','trece','catorce','quince','dieciséis','diecisiete','dieciocho','diecinueve','veinte','veintiuno','veintidós','veintitrés','veinticuatro','veinticinco','veintiséis','veintisiete','veintiocho','veintinueve'];
+  const D=['','','','treinta','cuarenta','cincuenta','sesenta','setenta','ochenta','noventa'];
+  const C=['','ciento','doscientos','trescientos','cuatrocientos','quinientos','seiscientos','setecientos','ochocientos','novecientos'];
+  const b=x=>{
+    if(x===100)return 'cien';
+    const c=Math.floor(x/100),r=x%100;let s=C[c];
+    if(r){if(s)s+=' ';if(r<30)s+=U[r];else{s+=D[Math.floor(r/10)];if(r%10)s+=' y '+U[r%10]}}
+    return s;
+  };
+  const un=s=>s.replace(/veintiuno$/,'veintiún').replace(/uno$/,'un');
+  const mm=Math.floor(n/1e6),k=Math.floor((n%1e6)/1e3),u=n%1e3,p=[];
+  if(mm)p.push(mm===1?'un millón':un(b(mm))+' millones');
+  if(k)p.push(k===1?'mil':un(b(k))+' mil');
+  if(u)p.push(b(u));
+  return p.join(' ');
+}
+function prev(v){
+  const d=digits(v);if(!d)return '';
+  const n=Number(d);
+  return '$'+n.toLocaleString('es-CL')+' · '+(n===1?'un peso':palabras(n)+' pesos');
+}
+document.addEventListener('input',e=>{
+  if(e.target.id!=='amt')return;
+  const el=e.target;el.value=fmtMonto(el.value);form.monto=el.value;
+  const p=$('#amtp');if(p)p.textContent=prev(el.value);
+});
+
+/* ---------- gráficos ---------- */
+const PAL=['#14b8a6','#f59e0b','#6366f1','#ec4899','#84cc16','#06b6d4','#a1a1aa'];
+function compact(v){return v>=1e6?(v/1e6).toFixed(1).replace('.',',').replace(',0','')+'M':v>=1e3?Math.round(v/1e3)+'k':String(Math.round(v))}
+function lastMonths(n){const out=[];let y=+ym.slice(0,4),m=+ym.slice(5);for(let i=0;i<n;i++){out.unshift(y+'-'+p2(m));m--;if(m<1){m=12;y--}}return out}
+function chartMeses(){
+  const ms=lastMonths(6);
+  const data=ms.map(k=>{let i=0,g=0;movs.forEach(m=>{if(String(m.fecha).startsWith(k)){if(m.tipo==='I')i+=Number(m.monto);else g+=Number(m.monto)}});return {k:k,i:i,g:g}});
+  if(!data.some(d=>d.i||d.g))return '<div class="card"><b>Ingresos vs gastos</b><div class="mut">Aún no hay movimientos en estos meses.</div></div>';
+  const W=320,H=180,pt=14,pb=22,gw=W/6,bw=16,ph=H-pt-pb,mx=Math.max.apply(null,data.map(d=>Math.max(d.i,d.g)));
+  let s='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;display:block"><line x1="0" x2="'+W+'" y1="'+(H-pb)+'" y2="'+(H-pb)+'" style="stroke:var(--bd)"/>';
+  data.forEach((d,j)=>{
+    const x0=j*gw+(gw-2*bw-2)/2;
+    [[d.i,'var(--grn)',0],[d.g,'var(--red)',bw+2]].forEach(b=>{
+      if(!(b[0]>0))return;
+      const h=b[0]/mx*ph,x=x0+b[2],y=H-pb-h;
+      s+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw+'" height="'+Math.max(1,h).toFixed(1)+'" rx="2" style="fill:'+b[1]+'"/><text x="'+(x+bw/2).toFixed(1)+'" y="'+(y-3).toFixed(1)+'" text-anchor="middle" style="fill:var(--mut);font-size:8px">'+compact(b[0])+'</text>';
+    });
+    const lbl=new Date(d.k+'-01T12:00:00').toLocaleDateString('es-CL',{month:'short'}).replace('.','');
+    s+='<text x="'+(j*gw+gw/2).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle" style="fill:'+(d.k===ym?'var(--tx)':'var(--mut)')+';font-size:10px;font-weight:'+(d.k===ym?700:400)+'">'+lbl+'</text>';
+  });
+  s+='</svg>';
+  return '<div class="card"><b>Ingresos vs gastos</b><div class="mut">Últimos 6 meses hasta el mes seleccionado</div>'+s+'<div class="legend"><span><span class="sw" style="background:var(--grn)"></span>Ingresos</span><span><span class="sw" style="background:var(--red)"></span>Gastos</span></div></div>';
+}
+function donut(cats,tg){
+  if(!cats.length||!tg)return '<div class="card"><b>Gastos por categoría</b><div class="mut">Sin gastos este mes.</div></div>';
+  const items=cats.slice(0,6).map(c=>({n:c[0],v:c[1]})),rest=cats.slice(6).reduce((s,c)=>s+c[1],0);
+  if(rest>0)items.push({n:'Otras',v:rest});
+  let acc=0;
+  const arcs=items.map((it,i)=>{const p=it.v/tg*100,a='<circle cx="21" cy="21" r="15.9155" fill="none" stroke="'+PAL[i]+'" stroke-width="6" stroke-dasharray="'+p.toFixed(2)+' '+(100-p).toFixed(2)+'" stroke-dashoffset="'+(25-acc).toFixed(2)+'"/>';acc+=p;return a}).join('');
+  const leg=items.map((it,i)=>'<div class="row" style="padding:5px 0"><span><span class="sw" style="background:'+PAL[i]+'"></span>'+esc(it.n)+'</span><span>'+clp(it.v)+' <span class="mut">'+Math.round(it.v/tg*100)+'%</span></span></div>').join('');
+  return '<div class="card"><b>Gastos por categoría</b><svg viewBox="0 0 42 42" style="width:180px;display:block;margin:8px auto"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--bd)" stroke-width="6"/>'+arcs+'<text x="21" y="22.6" text-anchor="middle" style="fill:var(--tx);font-size:5px;font-weight:700">$'+compact(tg)+'</text></svg>'+leg+'</div>';
+}
 
 /* ---------- lectura de cartola ---------- */
 function loadXlsx(){return new Promise((ok,ko)=>{if(window.XLSX)return ok();const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=ok;s.onerror=ko;document.head.appendChild(s)})}
